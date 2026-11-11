@@ -82,11 +82,13 @@ class DynamicQrIn(BaseModel):
 class InitiateIn(BaseModel):
     token: str
     amount: Optional[float] = Field(default=None, gt=0, le=MAX_AMOUNT)
+    lang: Optional[str] = "en"
 
 
 class ConfirmIn(BaseModel):
     payment_id: str
     pin: str
+    lang: Optional[str] = None
 
 
 # ---------- helpers ----------
@@ -174,6 +176,7 @@ def pay_initiate(body: InitiateIn):
         "amount": round(float(amount), 2),
         "status": "pending",
         "attempts": 0,
+        "lang": body.lang if body.lang in ("hi", "en") else "en",
     }
     return {
         "payment_id": payment_id,
@@ -207,6 +210,7 @@ async def pay_confirm(body: ConfirmIn):
             raise HTTPException(402, "Too many wrong PIN attempts. Payment cancelled.")
         raise HTTPException(402, f"Incorrect UPI PIN. {left} attempt{'s' if left != 1 else ''} left.")
 
+    lang = body.lang if body.lang in ("hi", "en") else p.get("lang", "en")
     ad = pick_ad(p["device_id"])
     payment = {
         "type": "payment",
@@ -214,6 +218,7 @@ async def pay_confirm(body: ConfirmIn):
         "amount": p["amount"],
         "ts": int(time.time() * 1000),
         "ad": ad,
+        "lang": lang,
     }
     delivered = await broadcast(p["device_id"], payment)
     p["status"] = "success"

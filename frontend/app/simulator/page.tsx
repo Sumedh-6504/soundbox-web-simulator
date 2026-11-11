@@ -26,7 +26,7 @@ const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"];
 
 export default function SimulatorPage() {
   const [deviceId, setDeviceId] = useState("");
-  const [lang, setLang] = useState<Lang>("hi");
+  const [lang, setLang] = useState<Lang>("en");
   const [started, setStarted] = useState(false);
   const [online, setOnline] = useState(false);
   const [staticUrl, setStaticUrl] = useState("");
@@ -48,30 +48,72 @@ export default function SimulatorPage() {
     adsRef.current = adsOn;
   }, [lang, adsOn]);
 
+  // Load persisted language preference
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("soundbox_lang");
+      if (saved === "hi" || saved === "en") setLang(saved as Lang);
+    } catch {}
+  }, []);
+
+  const chooseLang = (l: Lang) => {
+    setLang(l);
+    try {
+      localStorage.setItem("soundbox_lang", l);
+    } catch {}
+    setStaticUrl((cur) => {
+      if (!cur) return cur;
+      try {
+        const u = new URL(cur);
+        u.searchParams.set("lang", l);
+        return u.toString();
+      } catch {
+        return cur;
+      }
+    });
+    setDynamic((cur) => {
+      if (!cur) return null;
+      try {
+        const u = new URL(cur.url);
+        u.searchParams.set("lang", l);
+        return { ...cur, url: u.toString() };
+      } catch {
+        return cur;
+      }
+    });
+  };
+
   // Subscribe to speech synthesis state for live visualizer
   useEffect(() => {
     return subscribeSpeaking(setIsSpeaking);
   }, []);
 
-  // 1) device id + static QR
+  // 1) device id + static QR (synced with selected language)
   useEffect(() => {
     const id = getDeviceId();
     setDeviceId(id);
-    setStaticUrl(payUrl(`s_${id}`));
+    setStaticUrl(payUrl(`s_${id}`, lang));
     getStaticToken(id)
-      .then(({ token }) => setStaticUrl(payUrl(token)))
+      .then(({ token }) => setStaticUrl(payUrl(token, lang)))
       .catch(() =>
         setError(
           "Backend not reachable. Start it with: uvicorn main:app --reload --host 0.0.0.0 --port 8000"
         )
       );
-  }, []);
+  }, [lang]);
 
-  // 2) incoming payments -> show + announce
+  // 2) incoming payments -> show + announce in payment's requested language
   const handlePayment = useCallback((p: Payment) => {
     setLast(p);
     setHistory((h) => [p, ...h].slice(0, 12));
-    announcePayment(p.amount, langRef.current, p.ad, adsRef.current);
+    const effectiveLang = p.lang || langRef.current;
+    if (p.lang && p.lang !== langRef.current) {
+      setLang(p.lang);
+      try {
+        localStorage.setItem("soundbox_lang", p.lang);
+      } catch {}
+    }
+    announcePayment(p.amount, effectiveLang, p.ad, adsRef.current);
   }, []);
 
   // 3) WebSocket with auto-reconnect and keep-alive
@@ -88,7 +130,7 @@ export default function SimulatorPage() {
         setOnline(true);
         setError("");
         getStaticToken(deviceId)
-          .then(({ token }) => setStaticUrl(payUrl(token)))
+          .then(({ token }) => setStaticUrl(payUrl(token, langRef.current)))
           .catch(() => {});
         ping = setInterval(
           () => ws?.readyState === WebSocket.OPEN && ws.send("ping"),
@@ -143,7 +185,7 @@ export default function SimulatorPage() {
     if (!(amount > 0)) return setError("Enter an amount first");
     try {
       const { token } = await createDynamicQr(deviceId, amount);
-      setDynamic({ url: payUrl(token), amount });
+      setDynamic({ url: payUrl(token, langRef.current), amount });
       setEntry("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create QR");
@@ -169,8 +211,8 @@ export default function SimulatorPage() {
       unlockAudio();
       setStarted(true);
       const staticToken = `s_${deviceId}`;
-      const session = await initiatePayment(staticToken, amount);
-      await confirmPayment(session.payment_id, "1234");
+      const session = await initiatePayment(staticToken, amount, langRef.current);
+      await confirmPayment(session.payment_id, "1234", langRef.current);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Quick demo payment failed");
     } finally {
@@ -383,7 +425,7 @@ export default function SimulatorPage() {
           {(["hi", "en"] as Lang[]).map((l) => (
             <button
               key={l}
-              onClick={() => setLang(l)}
+              onClick={() => chooseLang(l)}
               className={`rounded-xl border px-3.5 py-1.5 text-xs font-bold transition-all ${
                 lang === l
                   ? "border-emerald-400 bg-emerald-400 text-slate-900 shadow-md shadow-emerald-400/20"

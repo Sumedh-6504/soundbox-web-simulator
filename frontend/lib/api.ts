@@ -1,7 +1,14 @@
 // Shared API helpers. Everything here runs in the browser only.
 import type { Ad } from "./announce";
 
-export type Payment = { type: "payment"; txn_id: string; amount: number; ts: number; ad: Ad };
+export type Payment = {
+  type: "payment";
+  txn_id: string;
+  amount: number;
+  ts: number;
+  ad: Ad;
+  lang?: "hi" | "en";
+};
 export type QrInfo = {
   kind: "static" | "dynamic";
   amount: number | null;
@@ -64,18 +71,21 @@ export const createDynamicQr = (deviceId: string, amount: number) =>
 export const getQr = (token: string) => request<QrInfo>(`/api/qr/${encodeURIComponent(token)}`);
 
 /** Dummy UPI step 1: start a payment for the scanned QR. */
-export const initiatePayment = (token: string, amount?: number) =>
+export const initiatePayment = (token: string, amount?: number, lang?: string) =>
   request<PaymentSession>("/api/pay/initiate", {
     method: "POST",
-    body: JSON.stringify({ token, amount }),
+    body: JSON.stringify({ token, amount, lang }),
   });
 
 /** Dummy UPI step 2: confirm with a PIN. Throws with a readable message on a wrong PIN. */
-export const confirmPayment = (paymentId: string, pin: string) =>
+export const confirmPayment = (paymentId: string, pin: string, lang?: string) =>
   request<PayResult>("/api/pay/confirm", {
     method: "POST",
-    body: JSON.stringify({ payment_id: paymentId, pin }),
+    body: JSON.stringify({ payment_id: paymentId, pin, lang }),
   });
 
 /** Pay-page URL that goes inside a QR. */
-export const payUrl = (token: string) => `${window.location.origin}/pay?token=${encodeURIComponent(token)}`;
+export const payUrl = (token: string, lang?: string) =>
+  `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/pay?token=${encodeURIComponent(
+    token
+  )}${lang ? `&lang=${lang}` : ""}`;

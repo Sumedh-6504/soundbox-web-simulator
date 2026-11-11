@@ -18,8 +18,17 @@ type Step = "amount" | "pin" | "processing" | "success";
 const PIN_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function PayInner({ lang }: { lang: Lang }) {
-  const token = useSearchParams().get("token");
+function PayInner({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token");
+  const urlLang = searchParams.get("lang");
+
+  useEffect(() => {
+    if (urlLang === "en" || urlLang === "hi") {
+      setLang(urlLang as Lang);
+    }
+  }, [urlLang, setLang]);
+
   const [info, setInfo] = useState<QrInfo | null>(null);
   const [loadError, setLoadError] = useState("");
   const [step, setStep] = useState<Step>("amount");
@@ -47,7 +56,7 @@ function PayInner({ lang }: { lang: Lang }) {
     setBusy(true);
     setError("");
     try {
-      setSession(await initiatePayment(token, fixed ? undefined : amount));
+      setSession(await initiatePayment(token, fixed ? undefined : amount, lang));
       setPin("");
       setStep("pin");
     } catch (e) {
@@ -72,7 +81,7 @@ function PayInner({ lang }: { lang: Lang }) {
     setStep("processing");
     const started = Date.now();
     try {
-      const res = await confirmPayment(session.payment_id, pin);
+      const res = await confirmPayment(session.payment_id, pin, lang);
       await sleep(Math.max(0, 1300 - (Date.now() - started))); // let the "processing" state be seen
       setResult(res);
       setStep("success");
@@ -351,7 +360,7 @@ export default function PayPage() {
         </div>
       </div>
       <Suspense fallback={<p className="text-slate-400">Loading…</p>}>
-        <PayInner lang={lang} />
+        <PayInner lang={lang} setLang={choose} />
       </Suspense>
     </main>
   );
