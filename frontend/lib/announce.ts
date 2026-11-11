@@ -104,8 +104,8 @@ export function playChime(): Promise<void> {
   });
 }
 
-// Module-level array holding active utterances to prevent Chrome garbage-collection bug
-let activeUtterances: SpeechSynthesisUtterance[] = [];
+// Keep module-level reference to active utterance to prevent Chrome garbage-collection bug
+let activeUtterance: SpeechSynthesisUtterance | null = null;
 
 function utterance(text: string, lang: Lang): SpeechSynthesisUtterance {
   const locale = lang === "hi" ? "hi-IN" : "en-IN";
@@ -116,41 +116,39 @@ function utterance(text: string, lang: Lang): SpeechSynthesisUtterance {
   return u;
 }
 
-/** Speaks the lines sequentially one after another with natural pacing. */
-export function speakInOrder(lines: string[], lang: Lang): boolean {
-  if (!supported() || lines.length === 0) return false;
-  window.speechSynthesis.cancel();
+/** Speaks a single continuous utterance with natural punctuation pacing. */
+export function speakText(text: string, lang: Lang): boolean {
+  if (!supported() || !text) return false;
+  try {
+    window.speechSynthesis.cancel();
+  } catch {}
   notifySpeaking(true);
-  activeUtterances = [];
 
-  const speakNext = (index: number) => {
-    if (index >= lines.length) {
-      activeUtterances = [];
-      notifySpeaking(false);
-      return;
-    }
+  const u = utterance(text, lang);
+  activeUtterance = u;
 
-    const text = lines[index];
-    const u = utterance(text, lang);
-    activeUtterances.push(u);
-
-    u.onend = () => {
-      // Natural 350ms pause between payment confirmation and ad announcement
-      setTimeout(() => speakNext(index + 1), 350);
-    };
-    u.onerror = () => {
-      speakNext(index + 1);
-    };
-
-    window.speechSynthesis.speak(u);
+  u.onend = () => {
+    activeUtterance = null;
+    notifySpeaking(false);
+  };
+  u.onerror = () => {
+    activeUtterance = null;
+    notifySpeaking(false);
   };
 
-  // Small delay to ensure previous cancel completed cleanly
-  setTimeout(() => speakNext(0), 60);
+  // 60ms delay ensures previous cancel is fully flushed by browser
+  setTimeout(() => {
+    try {
+      window.speechSynthesis.speak(u);
+    } catch {
+      notifySpeaking(false);
+    }
+  }, 60);
+
   return true;
 }
 
-/** Soundbox: payment chime -> voice announcement -> advertisement. Also used by Listen. */
+/** Soundbox: payment chime -> single seamless announcement (amount + advertisement). */
 export async function announcePayment(
   amount: number,
   lang: Lang,
@@ -160,12 +158,15 @@ export async function announcePayment(
   if (!supported()) return false;
   notifySpeaking(true);
   await playChime();
-  const lines = [buildMessage(amount, lang)];
-  if (withAd && ad && ad[lang]) lines.push(ad[lang]);
-  return speakInOrder(lines, lang);
+  const sep = lang === "hi" ? "। " : ". ";
+  const fullText =
+    withAd && ad && ad[lang]
+      ? `${buildMessage(amount, lang)}${sep}${ad[lang]}`
+      : buildMessage(amount, lang);
+  return speakText(fullText, lang);
 }
 
-/** Customer phone: chime -> "Payment of X rupees successful" -> store advertisement. */
+/** Customer phone: chime -> single seamless announcement (confirmation + advertisement). */
 export async function announceSuccess(
   amount: number,
   lang: Lang,
@@ -174,9 +175,12 @@ export async function announceSuccess(
 ): Promise<boolean> {
   if (!supported()) return false;
   await playChime();
-  const lines = [buildSuccessMessage(amount, lang)];
-  if (withAd && ad && ad[lang]) lines.push(ad[lang]);
-  return speakInOrder(lines, lang);
+  const sep = lang === "hi" ? "। " : ". ";
+  const fullText =
+    withAd && ad && ad[lang]
+      ? `${buildSuccessMessage(amount, lang)}${sep}${ad[lang]}`
+      : buildSuccessMessage(amount, lang);
+  return speakText(fullText, lang);
 }
 
 /** Browsers block audio until a user gesture: call this from a click handler once. */

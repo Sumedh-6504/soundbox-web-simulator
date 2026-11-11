@@ -11,7 +11,7 @@ import {
   type PaymentSession,
   type QrInfo,
 } from "@/lib/api";
-import { announceSuccess, unlockAudio, type Lang } from "@/lib/announce";
+import { announceSuccess, playChime, unlockAudio, type Lang } from "@/lib/announce";
 
 type Step = "amount" | "pin" | "processing" | "success";
 
@@ -76,7 +76,14 @@ function PayInner({ lang }: { lang: Lang }) {
       await sleep(Math.max(0, 1300 - (Date.now() - started))); // let the "processing" state be seen
       setResult(res);
       setStep("success");
-      announceSuccess(res.amount, lang, res.ad);
+      if (res.announced) {
+        // Soundbox simulator (/simulator) is online and announcing via WebSocket.
+        // Play local chime on customer screen, letting the Soundbox speak without two tabs colliding!
+        playChime();
+      } else {
+        // Soundbox is offline; speak directly from the customer screen
+        announceSuccess(res.amount, lang, res.ad);
+      }
     } catch (e) {
       await sleep(Math.max(0, 900 - (Date.now() - started)));
       const msg = e instanceof Error ? e.message : "Payment failed";
